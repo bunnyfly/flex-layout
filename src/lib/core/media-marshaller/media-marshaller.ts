@@ -5,7 +5,7 @@
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
  */
-import {Injectable} from '@angular/core';
+import { Inject, Injectable, PLATFORM_ID } from '@angular/core';
 
 import {merge, Observable, Subject, Subscription} from 'rxjs';
 import {filter, tap} from 'rxjs/operators';
@@ -18,6 +18,7 @@ import {MediaChange} from '../media-change';
 
 import {PrintHook, HookTarget} from './print-hook';
 import {mergeAlias} from '../add-alias';
+import { isPlatformServer } from '@angular/common';
 
 type ClearCallback = () => void;
 type UpdateCallback = (val: any) => void;
@@ -58,7 +59,8 @@ export class MediaMarshaller {
 
   constructor(protected matchMedia: MatchMedia,
               protected breakpoints: BreakPointRegistry,
-              protected hook: PrintHook) {
+              protected hook: PrintHook,
+              @Inject(PLATFORM_ID) private _platformId: Object) {
     this.observeActivations();
   }
 
@@ -175,7 +177,8 @@ export class MediaMarshaller {
   updateStyles(): void {
     this.elementMap.forEach((bpMap, el) => {
       const keyMap = new Set(this.elementKeyMap.get(el)!);
-      let valueMap = this.getActivatedValues(bpMap);
+      let valueMap = isPlatformServer(this._platformId) ?
+        this.getServerActivatedValues(bpMap) : this.getActivatedValues(bpMap);
 
       if (valueMap) {
         valueMap.forEach((v, k) => {
@@ -185,11 +188,12 @@ export class MediaMarshaller {
       }
 
       keyMap.forEach(k => {
-        valueMap = this.getActivatedValues(bpMap, k);
+        valueMap = isPlatformServer(this._platformId) ?
+          this.getServerActivatedValues(bpMap, k) : this.getActivatedValues(bpMap, k);
         if (valueMap) {
           const value = valueMap.get(k);
           this.updateElement(el, k, value);
-        } else {
+        } else if (!isPlatformServer(this._platformId)) {
           this.clearElement(el, k);
         }
       });
@@ -324,6 +328,23 @@ export class MediaMarshaller {
     }
     const lastHope = bpMap.get('');
     return (key === undefined || lastHope && lastHope.has(key)) ? lastHope : undefined;
+  }
+
+  /**
+   * get the fallback breakpoint for a given element on the server,
+   * starting with the current breakpoint
+   * @param bpMap
+   * @param key
+   */
+  private getServerActivatedValues(bpMap: BreakpointMap, key?: string): ValueMap | undefined {
+    const abp = this.activatedBreakpoints[0] ? this.activatedBreakpoints[0].alias : '';
+    const valueMap = bpMap.get(abp);
+    if (valueMap) {
+      if (key === undefined || valueMap.has(key)) {
+        return valueMap;
+      }
+    }
+    return undefined;
   }
 
   /**
